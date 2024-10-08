@@ -11,7 +11,7 @@ This is a PDF-specific tool designed for processing packing lists. It's intended
 
 2. Navigate to the project directory:
    ```
-   cd path/to/packing-list-processor
+   cd path/to/unpackit
    ```
 
 3. (Optional but recommended) Create and activate a virtual environment:
