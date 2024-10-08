@@ -39,3 +39,17 @@ This is a PDF-specific tool designed for processing packing lists. It's intended
 ## Running the Program
 
 To start the Packing List Processor:
+
+## Usage
+
+1. Create a new project or load an existing one.
+2. Process PDF files containing packing lists.
+3. Use the barcode scanner to check items.
+4. Generate and send status reports via email.
+
+For more detailed instructions, please refer to the in-app help or contact the developer.
+
+## Notes
+
+- This tool is designed for a specific workflow and may require customization for different use cases.
+- Ensure your camera is properly connected and configured for the barcode scanning feature to work.
