@@ -11,12 +11,12 @@ import pandas as pd
 import PyPDF2
 import re
 from PyQt6.QtCore import (QAbstractTableModel, Qt, QVariant, QThreadPool, 
-                          QRunnable, pyqtSignal, QObject)
+                          QRunnable, pyqtSignal, QObject, QPropertyAnimation, QEasingCurve)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QVBoxLayout,
                              QWidget, QPushButton, QFileDialog, QMessageBox,
                              QInputDialog, QLineEdit, QComboBox, QTableView,
-                             QProgressBar, QStatusBar, QShortcut, QStyle)
-from PyQt6.QtGui import QKeySequence, QIcon
+                             QProgressBar, QStatusBar, QShortcut, QStyle, QGraphicsOpacityEffect)
+from PyQt6.QtGui import QKeySequence, QIcon, QColor
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pyzbar import pyzbar
@@ -114,6 +114,45 @@ class PackingListProcessor(QMainWindow):
         # Load style sheet
         with open('style.qss', 'r') as f:
             self.setStyleSheet(f.read())
+
+        # Set up animations
+        self.setup_animations()
+
+    def setup_animations(self):
+        self.fade_effect = QGraphicsOpacityEffect()
+        self.central_widget.setGraphicsEffect(self.fade_effect)
+        self.fade_animation = QPropertyAnimation(self.fade_effect, b"opacity")
+        self.fade_animation.setDuration(500)
+        self.fade_animation.setStartValue(0)
+        self.fade_animation.setEndValue(1)
+        self.fade_animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self.fade_animation.start()
+
+    def create_buttons(self):
+        """Create and set up the main buttons."""
+        button_data = [
+            ("create_new", "Create New Project", self.create_new_project),
+            ("load_existing", "Load Existing Project", self.load_existing_project),
+            ("save", "Save Project", self.save_project),
+            ("scan", "Start Scanning", self.start_scanning),
+            ("email", "Send Status Email", self.send_status_email),
+            ("toggle_theme", "Toggle Dark Mode", self.toggle_dark_mode)
+        ]
+
+        for name, text, callback in button_data:
+            button = QPushButton(text)
+            button.clicked.connect(callback)
+            button.setObjectName(name)
+            icon = self.style().standardIcon(getattr(QStyle.StandardPixmap, f"SP_{name.upper()}"))
+            button.setIcon(icon)
+            self.layout.addWidget(button)
+            self.add_button_hover_effect(button)
+
+    def add_button_hover_effect(self, button):
+        button.setStyleSheet("""
+            QPushButton { transition: all 0.3s ease; }
+            QPushButton:hover { transform: scale(1.05); }
+        """)
 
     def create_buttons(self):
         """Create and set up the main buttons."""
@@ -327,18 +366,62 @@ class PackingListProcessor(QMainWindow):
         tab = QWidget()
         tab_layout = QVBoxLayout(tab)
 
+        # Create a container widget for the table and search box
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container.setStyleSheet("""
+            QWidget {
+                background-color: #fff8e7;
+                border-radius: 10px;
+                padding: 10px;
+            }
+        """)
+
         table_view = QTableView()
         model = PandasModel(df)
         table_view.setModel(model)
-        tab_layout.addWidget(table_view)
+        table_view.setAlternatingRowColors(True)
+        table_view.setStyleSheet("""
+            QTableView {
+                border: none;
+                gridline-color: #d2b48c;
+            }
+            QHeaderView::section {
+                background-color: #d2b48c;
+                color: #4a3728;
+                padding: 5px;
+                border: 1px solid #8b4513;
+            }
+        """)
+        container_layout.addWidget(table_view)
 
         # Add search functionality
         search_box = QLineEdit()
         search_box.setPlaceholderText("Search items...")
         search_box.textChanged.connect(lambda text: self.search_items(text, table_view))
-        tab_layout.addWidget(search_box)
+        search_box.setStyleSheet("""
+            QLineEdit {
+                border: 2px solid #d2b48c;
+                border-radius: 15px;
+                padding: 5px 10px;
+                background-color: #fff8e7;
+                color: #4a3728;
+            }
+        """)
+        container_layout.addWidget(search_box)
 
+        tab_layout.addWidget(container)
         self.tab_widget.addTab(tab, pdf_name)
+
+        # Add fade-in animation for the new tab
+        opacity_effect = QGraphicsOpacityEffect(tab)
+        tab.setGraphicsEffect(opacity_effect)
+        fade_in = QPropertyAnimation(opacity_effect, b"opacity")
+        fade_in.setDuration(500)
+        fade_in.setStartValue(0)
+        fade_in.setEndValue(1)
+        fade_in.setEasingCurve(QEasingCurve.InOutCubic)
+        fade_in.start()
 
     def search_items(self, text, table_view):
         """Search for items in the table view."""
@@ -379,12 +462,20 @@ class PackingListProcessor(QMainWindow):
             for barcode in barcodes:
                 barcode_data = barcode.data.decode('utf-8')
                 
+                # Draw a rectangle around the barcode
+                (x, y, w, h) = barcode.rect
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+                # Put the barcode data on the image
+                cv2.putText(frame, barcode_data, (x, y - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
                 for project_name, pdfs in self.project_data.items():
                     for pdf_name, df in pdfs.items():
                         if barcode_data in df['Box Number'].values:
                             df.loc[df['Box Number'] == barcode_data, 'Checked'] = True
                             self.update_table_view(project_name, pdf_name)
-                            return f"Box {barcode_data} has been scanned and marked as checked."
+                            self.status_bar.showMessage(f"Box {barcode_data} has been scanned and marked as checked.", 3000)
 
             cv2.imshow("Barcode Scanner", frame)
 
@@ -393,6 +484,25 @@ class PackingListProcessor(QMainWindow):
 
         cap.release()
         cv2.destroyAllWindows()
+
+    def update_table_view(self, project_name, pdf_name):
+        """Update the table view after scanning a barcode."""
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == pdf_name:
+                tab = self.tab_widget.widget(i)
+                table_view = tab.findChild(QTableView)
+                if table_view:
+                    df = self.project_data[project_name][pdf_name]
+                    model = PandasModel(df)
+                    table_view.setModel(model)
+                    
+                    # Highlight the newly checked row
+                    for row in range(model.rowCount()):
+                        if model.data(model.index(row, model.columnCount() - 1), Qt.ItemDataRole.DisplayRole) == 'True':
+                            table_view.selectRow(row)
+                            table_view.scrollTo(model.index(row, 0))
+                            break
+                break
 
     def update_table_view(self, project_name, pdf_name):
         """Update the table view after scanning a barcode."""
@@ -425,27 +535,57 @@ class PackingListProcessor(QMainWindow):
 
     def generate_status_summary(self):
         """Generate a summary of the project status."""
-        summary = f"Project Status for {self.current_project}:\n\n"
+        summary = f"<h2>Project Status for {self.current_project}</h2>"
         
         for pdf_name, df in self.project_data[self.current_project].items():
             total_items = len(df)
             checked_items = df['Checked'].sum()
             completion_percentage = (checked_items / total_items) * 100 if total_items > 0 else 0
             
-            summary += f"PDF: {pdf_name}\n"
-            summary += f"Total Items: {total_items}\n"
-            summary += f"Checked Items: {checked_items}\n"
-            summary += f"Completion: {completion_percentage:.2f}%\n"
+            summary += f"<h3>PDF: {pdf_name}</h3>"
+            summary += f"<p>Total Items: {total_items}<br>"
+            summary += f"Checked Items: {checked_items}<br>"
+            summary += f"Completion: {completion_percentage:.2f}%</p>"
+            
+            summary += self.generate_progress_bar(completion_percentage)
             
             if completion_percentage < 100:
                 missing_items = df[~df['Checked']]
-                summary += "Missing Items:\n"
+                summary += "<h4>Missing Items:</h4><ul>"
                 for _, row in missing_items.iterrows():
-                    summary += f"- {row['Description']} (Box: {row['Box Number']})\n"
+                    summary += f"<li>{row['Description']} (Box: {row['Box Number']})</li>"
+                summary += "</ul>"
             
-            summary += "\n"
+            summary += "<hr>"
         
         return summary
+
+    def generate_progress_bar(self, percentage):
+        """Generate an HTML progress bar."""
+        return f"""
+        <div style="background-color: #f0f0f0; border-radius: 13px; padding: 3px; width: 300px;">
+            <div style="background-color: #8b4513; width: {percentage}%; height: 20px; border-radius: 10px;">
+                <div style="color: white; text-align: center; padding-top: 2px;">{percentage:.1f}%</div>
+            </div>
+        </div>
+        """
+
+    def show_status_summary(self):
+        """Show the status summary in a message box."""
+        summary = self.generate_status_summary()
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Project Status Summary")
+        msg_box.setText(summary)
+        msg_box.setTextFormat(Qt.TextFormat.RichText)
+        msg_box.setStyleSheet("""
+            QMessageBox {
+                background-color: #f5e8d3;
+            }
+            QLabel {
+                color: #4a3728;
+            }
+        """)
+        msg_box.exec()
 
     def send_email(self, recipient, subject, body):
         """Send an email with the project status."""
@@ -476,14 +616,23 @@ class PackingListProcessor(QMainWindow):
         if self.palette().color(self.backgroundRole()).lightness() > 128:
             # Switch to dark mode
             self.setStyleSheet("""
-                QWidget { background-color: #2b2b2b; color: #ffffff; }
-                QPushButton { background-color: #4a4a4a; border: 1px solid #5a5a5a; }
-                QTableView { alternate-background-color: #3a3a3a; }
+                QWidget { background-color: #2b2b2b; color: #f5e8d3; }
+                QPushButton { background-color: #8b4513; border: 1px solid #a0522d; color: #f5e8d3; }
+                QTableView { background-color: #3a3a3a; alternate-background-color: #2b2b2b; }
+                QTabWidget::pane { border: 1px solid #a0522d; background-color: #2b2b2b; }
+                QTabBar::tab { background-color: #8b4513; color: #f5e8d3; }
+                QTabBar::tab:selected { background-color: #2b2b2b; }
+                QStatusBar { background-color: #8b4513; color: #f5e8d3; }
+                QProgressBar { border: 2px solid #a0522d; background-color: #2b2b2b; }
+                QProgressBar::chunk { background-color: #8b4513; }
+                QLineEdit, QComboBox { background-color: #3a3a3a; border: 1px solid #a0522d; color: #f5e8d3; }
             """)
         else:
             # Switch to light mode
-            self.setStyleSheet("")
+            with open('style.qss', 'r') as f:
+                self.setStyleSheet(f.read())
         
+        self.fade_animation.start()
         self.status_bar.showMessage("Theme changed", 3000)
 
 // Update the main function to handle Windows-specific settings
@@ -493,6 +642,12 @@ def main():
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
     app.setStyle("Fusion")  # Use Fusion style for better cross-platform consistency
+    
+    # Set the default font for the entire application
+    font = app.font()
+    font.setPointSize(10)  # Adjust the size as needed
+    app.setFont(font)
+    
     window = PackingListProcessor()
     window.show()
     sys.exit(app.exec())
