@@ -486,9 +486,13 @@ class PackingListProcessor(QMainWindow):
         
         self.status_bar.showMessage("Theme changed", 3000)
 
+// Update the main function to handle Windows-specific settings
 def main():
     """Main function to run the application."""
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")  # Use Fusion style for better cross-platform consistency
     window = PackingListProcessor()
     window.show()
     sys.exit(app.exec())
